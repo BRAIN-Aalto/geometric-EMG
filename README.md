@@ -12,5 +12,5 @@ sudo pip3 install -r requirements
 ## Run
 
 ```SHELL
-sudo python test3.py
+sudo python GUI.py
 ```
