@@ -1,7 +1,4 @@
-from PyQt5 import QtCore, QtGui, QtWidgets
-from gforce import GForceProfile, NotifDataType, DataNotifFlags
-
-
+from PyQt5 import QtCore, QtWidgets
 
 class PageWindow(QtWidgets.QMainWindow):
     
@@ -24,8 +21,6 @@ class PageWindow(QtWidgets.QMainWindow):
                     self.l1.setText(f"Found {len(scan_results)}")
                     for result in scan_results:
                         devButton = QtWidgets.QPushButton(f"{result}")
-                        
-                        #self.devButton.setGeometry(QtCore.QRect(5, 100, 100, 30))
                         devButton.clicked.connect(self.make_handleButton("connectToDevice", result[2]))
                         self.layout.addWidget(devButton)
                 else:
