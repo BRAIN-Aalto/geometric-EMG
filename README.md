@@ -3,14 +3,14 @@
 ## gFroce SDK
 gFroce SDK of python version under Linux. Needs bluepy library to work.
 
-### Install bluepy
+## Install requirements
 
 ```SHELL
-sudo pip3 install bluepy
+sudo pip3 install -r requirements
 ```
 
 ## Run
 
 ```SHELL
-python test3.py
+sudo python test3.py
 ```
