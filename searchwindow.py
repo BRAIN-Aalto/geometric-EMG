@@ -6,8 +6,11 @@ from customcanvas import CustomFigCanvas
 import threading
 from datetime import datetime
 from modeltraining import load_model
-from helpers import ondata, set_cmd_cb, dataSendLoop
+from helpers import set_cmd_cb, rms_formuula
 import random
+from communicate import Communicate
+import time
+import numpy as np
 
 now = datetime.now()
 dt_string = now.strftime("%d/%m/%Y%H:%M:%S")
@@ -22,7 +25,6 @@ channels = []
 actions = list(range(1,10))*5
 random.shuffle(actions)
 
-
 OFFSET = 121
 PEAK = 0
 PEAK_MULTIPLIER = 0
@@ -33,6 +35,7 @@ BASELINE_MULTIPLIER = 100
 OFFSET_RMS = 0
 STARTED = False
 reg = None
+
 ACTIONS = {
     1: ["Flexion",          "img/Flexion.png",          (None, None),  0],
     2: ["Extension",        "img/Extension.png",        (None, None),  0],
@@ -80,7 +83,6 @@ class SearchWindow(PageWindow):
             print("Error during loading Action: ", e)
     
     def scan(self):
-
         scan_results = self.GF.scan(2)
 
         if scan_results:
@@ -235,7 +237,6 @@ class SearchWindow(PageWindow):
     def UiComponents(self):
         self.layout = QtWidgets.QVBoxLayout()
         self.layout0 = QtWidgets.QHBoxLayout()
-
         self.layout1 = QtWidgets.QHBoxLayout()
         self.layout.setContentsMargins(10,10,10,10)
         self.layout.setSpacing(10)
@@ -254,7 +255,6 @@ class SearchWindow(PageWindow):
         self.layout0.setAlignment(QtCore.Qt.AlignTop)
         self.layout.addLayout(self.layout0)
 
-        
         self.layout.setAlignment(QtCore.Qt.AlignTop)
         widget = QtWidgets.QWidget()
         widget.setLayout(self.layout)
@@ -270,7 +270,6 @@ class SearchWindow(PageWindow):
         self.e1.setMaxLength(4)
         self.e1.setAlignment(QtCore.Qt.AlignLeft)
         self.e1.setFixedSize(200, 32)
-
 
         self.e2 = QtWidgets.QLineEdit("0")
         self.e2.setValidator(QtGui.QDoubleValidator(0,1,2))
@@ -294,8 +293,6 @@ class SearchWindow(PageWindow):
         caliberateButton = QtWidgets.QPushButton("Caliberate")
         caliberateButton.clicked.connect(self.make_handleButton("caliberate"))
         caliberateButton.setFixedSize(120,30)
-
-        
 
         self.recordMVCButton = QtWidgets.QPushButton("Record MVC")
         self.recordMVCButton.clicked.connect(self.make_handleButton("recordMVC"))
@@ -374,3 +371,57 @@ class SearchWindow(PageWindow):
         self.actionImg.setAlignment(QtCore.Qt.AlignCenter)
         self.layout5.addWidget(self.actionLabel)
         self.layout5.addWidget(self.actionImg)
+
+def ondata(data):
+
+    global STARTED, channels, file1
+
+        # Data for EMG CH0~CHn repeatly.
+        # Resolution set in setEmgRawDataConfig:
+        #   8: one byte for one channel
+        #   12: two bytes in LSB for one channel.
+        # eg. 8bpp mode, data[1] = channel[0], data[2] = channel[1], ... data[8] = channel[7]
+        #                data[9] = channel[0] and so on
+        # eg. 12bpp mode, {data[2], data[1]} = channel[0], {data[4], data[3]} = channel[1] and so on
+
+        # # end for
+        
+    extracted_data = data[1:]
+    channels += extracted_data
+
+    if STARTED:
+        file1.write(' '.join(map(str, extracted_data)) +"\n")
+
+def dataSendLoop(addData_callbackFunc):
+    # Setup the signal-slot mechanism.
+    mySrc = Communicate()
+    mySrc.data_signal.connect(addData_callbackFunc)
+    #time.sleep(3)
+    i = 0*500*8
+    global PEAK, PEAK_MULTIPLIER, BASELINE, OFFSET, OFFSET_RMS, BASELINE_MULTIPLIER,ACTIONS, reg
+    while(True):
+        #channels[i:i+50*8]
+        for j in range (8):
+            try:
+                datawindow = channels[i:i+50*8]
+                if datawindow:
+                    datastack = np.stack([np.array(datawindow[k::8]) for k in range (8)]).astype('float32') - OFFSET
+                    mean_in_window = datastack.mean(1) # should have size (8,)
+                    rms_ = rms_formuula(datastack/255)
+                    rms = rms_.sum()- OFFSET_RMS
+                    if reg:
+                        pred_class = reg.predict(rms_.reshape(1,8))
+                        print(ACTIONS[pred_class[0]+1][0])
+                        mySrc.data_signal.emit([pred_class[0]/5+0.01] + list(mean_in_window))
+                    elif OFFSET_RMS:
+                        mySrc.data_signal.emit([rms] + list(mean_in_window))
+                    else:
+                        BASELINE = min(rms*BASELINE_MULTIPLIER, BASELINE)
+                        PEAK = max(rms*PEAK_MULTIPLIER, PEAK)
+                        mySrc.data_signal.emit([rms] + list(mean_in_window))
+                    i += 25*8
+                    #print(len(channels)-i)
+                time.sleep(47/1000)
+
+            except Exception as e:
+                print("Error during plotting:", type(e),e) 
