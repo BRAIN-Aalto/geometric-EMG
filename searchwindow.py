@@ -5,7 +5,6 @@ from  pagewindow import PageWindow
 from customcanvas import CustomFigCanvas
 import threading
 from datetime import datetime
-from modeltraining import load_model
 from helpers import set_cmd_cb, rms_formuula
 import random
 from communicate import Communicate
@@ -35,6 +34,10 @@ BASELINE_MULTIPLIER = 100
 OFFSET_RMS = 0
 STARTED = False
 reg = None
+packet_cnt = 0
+start_time = 0
+FORWARD = 0
+ind_channel = 0
 
 ACTIONS = {
     1: ["Flexion",          "img/Flexion.png",          (None, None),  0],
@@ -143,6 +146,9 @@ class SearchWindow(PageWindow):
                 
                 QtWidgets.qApp.processEvents()
 
+                while True:
+                    if len(channels)>128: 
+                        break
                 self.myFig = CustomFigCanvas()
                 self.layout.addWidget(self.myFig)
                 #Add the callbackfunc to ..
@@ -200,6 +206,7 @@ class SearchWindow(PageWindow):
                                                              "Text Files(*.txt)")
                 
                 try:
+                    print(name)
                     os.makedirs(os.path.dirname(name[0]), exist_ok=True)
                     os.system(f'cp {file1.name} {name[0]}')  
                     current_action = int(self.subj_motion.text())
@@ -222,12 +229,16 @@ class SearchWindow(PageWindow):
                 self.trainModelButton.setText('Back to Collection Mode')
                 self.trainModelButton.clicked.connect(self.make_handleButton("backToCollect"))
                 QtWidgets.qApp.processEvents()
-                reg = load_model()
+                reg = load_NonLinearmodel()
 
             elif button=='backToCollect':
-                reg = None
+                
                 self.trainModelButton.clicked.connect(self.make_handleButton("trainModel"))
                 self.trainModelButton.setText('Train Model')
+                QtWidgets.qApp.processEvents()
+                reg = None
+            elif button == "skipSignal":
+                FORWARD += 1000
 
         return handleButton
     
@@ -235,8 +246,10 @@ class SearchWindow(PageWindow):
         self.myFig.addData(value)
 
     def UiComponents(self):
+        global actions
         self.layout = QtWidgets.QVBoxLayout()
         self.layout0 = QtWidgets.QHBoxLayout()
+
         self.layout1 = QtWidgets.QHBoxLayout()
         self.layout.setContentsMargins(10,10,10,10)
         self.layout.setSpacing(10)
@@ -255,6 +268,7 @@ class SearchWindow(PageWindow):
         self.layout0.setAlignment(QtCore.Qt.AlignTop)
         self.layout.addLayout(self.layout0)
 
+        
         self.layout.setAlignment(QtCore.Qt.AlignTop)
         widget = QtWidgets.QWidget()
         widget.setLayout(self.layout)
@@ -270,6 +284,7 @@ class SearchWindow(PageWindow):
         self.e1.setMaxLength(4)
         self.e1.setAlignment(QtCore.Qt.AlignLeft)
         self.e1.setFixedSize(200, 32)
+
 
         self.e2 = QtWidgets.QLineEdit("0")
         self.e2.setValidator(QtGui.QDoubleValidator(0,1,2))
@@ -307,8 +322,7 @@ class SearchWindow(PageWindow):
         self.layout4.addWidget(self.pauseMVCButton)
         self.layout4.addWidget(caliberateButton)
 
-
-        self.loadMotionButton = QtWidgets.QPushButton("Load Random Motion (45 left)")
+        self.loadMotionButton = QtWidgets.QPushButton(f"Load Random Motion ({len(actions)} left)")
         self.loadMotionButton.clicked.connect(self.make_handleButton("loadMotion"))
         self.loadMotionButton.setFixedSize(300,30)
 
@@ -324,10 +338,14 @@ class SearchWindow(PageWindow):
         self.trainModelButton.clicked.connect(self.make_handleButton("trainModel"))
         self.trainModelButton.setFixedSize(150,30)
         
+        self.skipSignalButton = QtWidgets.QPushButton("Refresh")
+        self.skipSignalButton.clicked.connect(self.make_handleButton("skipSignal"))
+        self.skipSignalButton.setFixedSize(150,30)
+
         self.layout3.addWidget(self.loadMotionButton)
         self.layout3.addWidget(self.recordSamplButton)
         self.layout3.addWidget(stopSamplButton)
-        self.layout3.addWidget(self.trainModelButton)
+        self.layout3.addWidget(self.skipSignalButton)
 
         self.subj_name = QtWidgets.QLineEdit("1")
         self.subj_name.setValidator(QtGui.QIntValidator())
@@ -397,31 +415,27 @@ def dataSendLoop(addData_callbackFunc):
     mySrc = Communicate()
     mySrc.data_signal.connect(addData_callbackFunc)
     #time.sleep(3)
-    i = 0*500*8
-    global PEAK, PEAK_MULTIPLIER, BASELINE, OFFSET, OFFSET_RMS, BASELINE_MULTIPLIER,ACTIONS, reg
+    global PEAK, PEAK_MULTIPLIER, BASELINE, OFFSET_RMS, BASELINE_MULTIPLIER,ACTIONS,FORWARD, reg
     while(True):
         #channels[i:i+50*8]
         for j in range (8):
             try:
-                datawindow = channels[i:i+50*8]
+                datawindow = channels[FORWARD:FORWARD+50*8]
                 if datawindow:
                     datastack = np.stack([np.array(datawindow[k::8]) for k in range (8)]).astype('float32') - OFFSET
                     mean_in_window = datastack.mean(1) # should have size (8,)
                     rms_ = rms_formuula(datastack/255)
                     rms = rms_.sum()- OFFSET_RMS
-                    if reg:
-                        pred_class = reg.predict(rms_.reshape(1,8))
-                        print(ACTIONS[pred_class[0]+1][0])
-                        mySrc.data_signal.emit([pred_class[0]/5+0.01] + list(mean_in_window))
-                    elif OFFSET_RMS:
+                    
+                    if OFFSET_RMS:
                         mySrc.data_signal.emit([rms] + list(mean_in_window))
                     else:
                         BASELINE = min(rms*BASELINE_MULTIPLIER, BASELINE)
                         PEAK = max(rms*PEAK_MULTIPLIER, PEAK)
                         mySrc.data_signal.emit([rms] + list(mean_in_window))
-                    i += 25*8
-                    #print(len(channels)-i)
+                    FORWARD += 25*8 
                 time.sleep(47/1000)
+
 
             except Exception as e:
                 print("Error during plotting:", type(e),e) 
